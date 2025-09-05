@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """For distributed training with multiple process groups."""
 import ipaddress
-import socket
 from datetime import timedelta
 from typing import Any, Optional, Union
 
@@ -24,21 +23,6 @@ def is_ipv6_address(ip_str: str) -> bool:
         return False
 
 
-def get_available_port() -> int:
-    with socket.socket() as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
-
-
-def is_port_available(port: int, host="127.0.0.1") -> bool:
-    with socket.socket() as s:
-        try:
-            s.bind((host, port))
-            return True
-        except OSError:
-            return False
-
-
 def init_process_group(
     host: str,
     port: int,
@@ -48,7 +32,6 @@ def init_process_group(
     world_size: int = -1,
     rank: int = -1,
     pg_options: Optional[Any] = None,
-    device_id: Optional[torch.device] = None,
 ):
     assert backend == "nccl", "Only nccl backend is supported for now."
 
@@ -84,7 +67,6 @@ def init_process_group(
         store=prefix_store,
         group_name=group_name,
         timeout=timeout,
-        device_id=device_id,
         **{pg_options_param_name: pg_options},
     )
 

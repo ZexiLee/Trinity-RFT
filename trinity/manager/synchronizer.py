@@ -3,7 +3,7 @@
 import asyncio
 import os
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 import ray
 
@@ -31,7 +31,7 @@ class Synchronizer:
     """
 
     def __init__(self, config: Config, module_ref: ray.actor.ActorHandle):
-        self.logger = get_logger("synchronizer", in_ray_actor=True)
+        self.logger = get_logger(__name__)
         self.config = config
         self.trainer_status = RunningStatus.STOPPED
         self.explorer_status_counts: Dict[RunningStatus, int] = defaultdict(lambda: 0)
@@ -139,16 +139,11 @@ class Synchronizer:
             step_num=step_num,
         )
         if checkpoint_step_num != self.model_version:
-            model_state_dict = load_state_dict(
-                os.path.join(checkpoint_dir, "actor"),
-                self.config.trainer,
-            )
+            model_state_dict = load_state_dict(os.path.join(checkpoint_dir, "actor"))
             await self.set_model_state_dict(model_state_dict, checkpoint_step_num)
         return checkpoint_step_num
 
-    async def set_model_state_dict(
-        self, model_state_dict: Union[dict, None, Tuple[str, str]], trainer_step: int
-    ):
+    async def set_model_state_dict(self, model_state_dict: Union[dict, None], trainer_step: int):
         """
         Set the new model state and update the version.
 
@@ -156,8 +151,8 @@ class Synchronizer:
             model_state_dict: The PyTorch model state dictionary.
             trainer_step: Step number associated with this model version.
         """
+        self.model_state_dict = model_state_dict
         async with self._ready_condition:
-            self.model_state_dict = model_state_dict
             self.model_version = trainer_step
             self.logger.info(f"Set model state dict version to {trainer_step}.")
             self._ready_condition.notify_all()
@@ -166,7 +161,7 @@ class Synchronizer:
         """Return the current model state and its version."""
         return self.model_state_dict, self.model_version
 
-    async def get_state_dict_meta(self):
+    def get_state_dict_meta(self):
         """
         Return metadata about the model state (names, data types, shapes).
 
@@ -175,11 +170,6 @@ class Synchronizer:
         """
         if self.model_state_dict is None:
             return None
-        if isinstance(self.model_state_dict, tuple):
-            async with self._ready_condition:
-                await self._ready_condition.wait_for(
-                    lambda: not isinstance(self.model_state_dict, tuple)
-                )
         update_weight_args_list = []
         for name, param in self.model_state_dict.items():
             update_weight_args_list.append((name, str(param.dtype), tuple(param.shape)))

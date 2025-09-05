@@ -9,6 +9,9 @@ algorithm:
   policy_loss_fn_args:
     clip_range: 0.2
   advantage_fn: ppo
+  advantage_fn_args:
+    gamma: 1.0
+    lam: 1.0
   kl_penalty_fn: k3
   kl_loss_fn: k2
 model:
@@ -21,13 +24,14 @@ cluster:  # 2 for explorer, 2 for trainer
 buffer:
   total_epochs: 1
   batch_size: 4
+  max_retry_times: 3
+  max_retry_interval: 1
   explorer_input:
     taskset:
       name: taskset
       storage_type: file
       path: 'placeholder'
       split: 'train'
-      enable_progress_bar: false
     default_workflow_type: ''
     default_eval_workflow_type: ''
     default_reward_fn_type: ''

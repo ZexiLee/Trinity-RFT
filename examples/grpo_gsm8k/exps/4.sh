@@ -1,0 +1,1 @@
+trinity run --config examples/grpo_gsm8k/grpo-rss.yaml

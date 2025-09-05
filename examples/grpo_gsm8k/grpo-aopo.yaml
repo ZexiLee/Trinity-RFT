@@ -1,0 +1,72 @@
+project: "zexi-qwen2.5-1.5B-gsm8k-0821"
+name: "grpo-aopo-asyn12"
+checkpoint_root_dir: /root/lizexi.lzx/Trinity-RFT/logs_ckpts
+algorithm:
+  algorithm_type: grpo
+  add_strategy: grpo-aopo
+  repeat_times: 8
+model:
+  model_path: /root/lizexi.lzx/models/Qwen2.5-1.5B-Instruct
+  max_response_tokens: 1024
+  max_model_len: 1280
+cluster:
+  node_num: 1
+  gpu_per_node: 2
+buffer:
+  total_epochs: 2
+  batch_size: 96
+  max_retry_times: 3
+  max_retry_interval: 1
+  explorer_input:
+    taskset:
+      name: gsm8k
+      storage_type: file
+      path: /root/lizexi.lzx/datasets/gsm8k
+      subset_name: 'main'
+      split: 'train'
+      format:
+        prompt_key: 'question'
+        response_key: 'answer'
+      rollout_args:
+        temperature: 1.0
+    eval_tasksets:
+    - name: gsm8k-eval
+      storage_type: file
+      path: /root/lizexi.lzx/datasets/gsm8k
+      subset_name: 'main'
+      split: 'test'
+      format:
+        prompt_key: 'question'
+        response_key: 'answer'
+    default_workflow_type: 'math_workflow'
+  trainer_input:
+    experience_buffer:
+      name: gsm8k_buffer
+      storage_type: queue
+#      path: 'sqlite:///gsm8k.db'
+    # sft_warmup_steps: 0
+    # sft_warmup_dataset: # Uncomment these to enable sft warmup
+    #   name: warmup_data
+    #   storage_type: file
+    #   path: '/PATH/TO/WARMUP_DATA/'
+explorer:
+  eval_interval: 20
+  runner_num: 32
+  rollout_model:
+    engine_type: vllm_async
+    engine_num: 1
+    tensor_parallel_size: 1
+    enable_prefix_caching: false
+    enforce_eager: true
+    dtype: bfloat16
+    seed: 18
+synchronizer:
+  sync_method: 'nccl'
+  sync_interval: 12
+  sync_timeout: 1200
+trainer:
+  trainer_type: 'verl'
+  trainer_config_path: 'examples/grpo_gsm8k/train_gsm8k.yaml'
+  save_interval: 100
+monitor:
+    monitor_type: wandb

@@ -17,7 +17,6 @@ from trinity.algorithm.utils import prefix_metrics
 from trinity.common.config import Config
 from trinity.common.constants import RunningStatus, SyncMethod, SyncStyle
 from trinity.common.experience import Experiences
-from trinity.manager.state_manager import StateManager
 from trinity.manager.synchronizer import Synchronizer
 from trinity.utils.log import get_logger
 from trinity.utils.monitor import MONITOR
@@ -29,15 +28,10 @@ class Trainer:
 
     def __init__(self, config: Config) -> None:
         self.config = config
-        self.logger = get_logger(config.trainer.name, in_ray_actor=True)
+        self.logger = get_logger(__name__)
         load_plugins()
         self.synchronizer = Synchronizer.get_actor(config)
         self.engine = get_trainer_wrapper(config)
-        self.state = StateManager(config)
-        trainer_state = self.state.load_trainer()
-        config.buffer.trainer_input.experience_buffer.index = trainer_state.get(
-            "latest_exp_index", 0
-        )
         self.last_trainer_sync_step = 0
         self.monitor = MONITOR.get(config.monitor.monitor_type)(
             project=config.project,
@@ -76,7 +70,7 @@ class Trainer:
                 self.logger.error(f"Error in Trainer:\n{traceback.format_exc()}")
                 self.train_continue = False
 
-        self.save_checkpoint(block_until_saved=True)
+        self.engine.save_checkpoint(block_until_saved=True)
         await self.synchronizer.set_trainer_status.remote(RunningStatus.STOPPED)
         self.logger.info("--------------------\n> Trainer finished.\n--------------------")
         return self.config.trainer.name
@@ -99,7 +93,7 @@ class Trainer:
                 or self.train_step_num % self.config.trainer.save_interval != 0
             ):
                 self.logger.info(f"Saving at step {self.train_step_num}.")
-                self.save_checkpoint()
+                self.engine.save_checkpoint()
                 self.logger.info(f"Saved at step {self.train_step_num}.")
             return False
         self.logger.info(f"Sampling at step {self.train_step_num + 1} done.")
@@ -157,13 +151,6 @@ class Trainer:
             )
             self._sample_exps_to_log.clear()
 
-    def save_checkpoint(self, block_until_saved: bool = False) -> None:
-        self.engine.save_checkpoint(block_until_saved=block_until_saved)
-        self.state.save_trainer(
-            current_exp_index=self.engine.train_step_num * self.config.buffer.train_batch_size,
-            current_step=self.train_step_num,
-        )
-
     async def shutdown(self) -> None:
         self.monitor.close()
 
@@ -175,15 +162,6 @@ class Trainer:
     def is_alive(self) -> bool:
         """Check if the trainer is alive."""
         return True
-
-    @classmethod
-    def get_actor(cls, config: Config):
-        """Get a Ray actor for the trainer."""
-        return (
-            ray.remote(cls)
-            .options(name=config.trainer.name, namespace=ray.get_runtime_context().namespace)
-            .remote(config)
-        )
 
 
 class TrainEngineWrapper(ABC):
