@@ -8,6 +8,9 @@ import openai
 from trinity.common.models.model import ModelWrapper
 from trinity.common.rewards.math_reward import MathBoxedRewardFn
 from trinity.common.workflows.workflow import WORKFLOWS, Task, Workflow
+from trinity.utils.log import get_logger
+
+logger = get_logger(__name__)
 
 
 @WORKFLOWS.register_module("agentscope_reactv2_math_workflow")
@@ -29,7 +32,7 @@ class AgentScopeReactV2MathWorkflow(Workflow):
             from agentscope.service import ServiceToolkit, execute_python_code
         except ImportError as e:
             error_message = f"AgentScope is not installed. Please install the agentscope framework first before running the workflow. Error: {str(e)}"
-            self.logger.error(error_message)
+            logger.error(error_message)
             raise ImportError(error_message)
 
         # get openai client from model
@@ -81,7 +84,7 @@ You are an agent specialized in solving math problems with tools. Please solve t
             from agentscope.agents import ReActAgentV2
         except ImportError as e:
             error_message = f"AgentScope is not installed. Please install the agentscope framework first before running the workflow. Error: {str(e)}"
-            self.logger.error(error_message)
+            logger.error(error_message)
             raise ImportError(error_message)
         self.agent = ReActAgentV2(
             name="math_react_agent",
@@ -106,7 +109,7 @@ You are an agent specialized in solving math problems with tools. Please solve t
             else:
                 self.answer = str(self.truth)
         except Exception as e:
-            self.logger.debug(f"Error in getting answer from truth: {str(e)}")
+            logger.debug(f"Error in getting answer from truth: {str(e)}")
             self.answer = str(self.truth)
 
         # we use the boxed format to evaluate the answer
@@ -122,7 +125,7 @@ You are an agent specialized in solving math problems with tools. Please solve t
             from agentscope.message import Msg
         except ImportError as e:
             error_message = f"AgentScope is not installed. Please install the agentscope framework first before running the workflow. Error: {str(e)}"
-            self.logger.error(error_message)
+            logger.error(error_message)
             raise ImportError(error_message)
 
         # provide the task to the react agent
@@ -138,22 +141,22 @@ You are an agent specialized in solving math problems with tools. Please solve t
                 response_text = content
         except Exception as e:
             error_message = f"Error in processing the response: {e}"
-            self.logger.info(error_message)
+            logger.info(error_message)
             response_text = str(content)
 
         reward = self.reward_fn(response_text, self.answer)
         reward = sum(reward.values())
-        self.logger.debug(f"Reward: {reward}")
+        logger.debug(f"Reward: {reward}")
         experiences = self.model.extract_experience_from_history(clear_history=True)
-        self.logger.debug(f"Experiences extracted len: {len(experiences)}")
+        logger.debug(f"Experiences extracted len: {len(experiences)}")
         for i, experience in enumerate(experiences):
             experience.eid.step = i
             experience.reward = reward
-            agent_metrics = {"react_memory_length": len(self.agent.memory.get_memory())}
+            turns_metrics = {"agent_turns": len(self.agent.memory.get_memory())}
             if experience.metrics is None:
                 experience.metrics = {}
-            experience.metrics.update(agent_metrics)
-        self.logger.debug(
+            experience.metrics.update(turns_metrics)
+        logger.debug(
             f"return experience len: {len(experiences)}, run_id: {str(experiences[-1].eid.run)}, final step reward: {experiences[-1].reward}"
         )
         return experiences

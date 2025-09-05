@@ -6,6 +6,9 @@ from typing import List
 from trinity.common.experience import Experience
 from trinity.common.rewards.math_reward import MathBoxedRewardFn
 from trinity.common.workflows.workflow import WORKFLOWS, SimpleWorkflow, Task
+from trinity.utils.log import get_logger
+
+logger = get_logger(__name__)
 
 
 @WORKFLOWS.register_module("math_boxed_workflow")
@@ -60,7 +63,7 @@ class MathBoxedWorkflow(SimpleWorkflow):
         else:
             prompt_text = self.format_prompt()
 
-        self.logger.debug("start chat")
+        logger.debug("start chat")
         if not self.use_base:
             responses = self.model.chat(messages, **self.rollout_args)
         else:
@@ -83,11 +86,11 @@ class MathBoxedWorkflow(SimpleWorkflow):
             response.eid.run = i + self.run_id_base
 
             if not self.use_base:
-                self.logger.debug(
+                logger.debug(
                     f"self.task_desc: {self.task_desc}, messages: {messages}, response: {response.response_text}, reward: {reward}"
                 )
             else:
-                self.logger.debug(
+                logger.debug(
                     f"self.task_desc: {self.task_desc}, prompt_text: {prompt_text}, response: {response.response_text}, reward: {reward}"
                 )
         return responses

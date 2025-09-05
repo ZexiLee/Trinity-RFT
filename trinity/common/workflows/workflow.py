@@ -17,6 +17,9 @@ from trinity.common.rewards.reward_fn import RewardFn
 from trinity.utils.log import get_logger
 from trinity.utils.registry import Registry
 
+logger = get_logger(__name__)
+
+
 WORKFLOWS = Registry("workflows")
 
 
@@ -24,7 +27,7 @@ WORKFLOWS = Registry("workflows")
 class Task(dict):
     """A Task class that defines a task and its associated reward function / workflow."""
 
-    workflow: Type[Workflow] = None
+    workflow: Type[Workflow]
     repeat_times: Optional[int] = None
     format_args: FormatConfig = field(default_factory=FormatConfig)
     rollout_args: GenerationConfig = field(default_factory=GenerationConfig)
@@ -92,7 +95,6 @@ class Workflow(ABC):
         self.model = model
         self.auxiliary_models = auxiliary_models
         self.run_id_base = 0
-        self.logger = get_logger(__name__)
 
     @property
     def resettable(self):
@@ -238,7 +240,7 @@ class SimpleWorkflow(Workflow):
         # TODO: Optimize the generate function
         messages = self.format_messages()
 
-        self.logger.debug("start chat")
+        logger.debug("start chat")
         responses = self.model.chat(messages, **self.rollout_args)
         for i, response in enumerate(responses):
             reward_dict = self.reward_fn(  # type: ignore [misc]
@@ -253,7 +255,7 @@ class SimpleWorkflow(Workflow):
             response.reward = reward
             response.eid.run = i + self.run_id_base
 
-            self.logger.debug(
+            logger.debug(
                 f"self.task_desc: {self.task_desc}, messages: {messages}, response: {response.response_text}, reward: {reward}"
             )
         return responses
