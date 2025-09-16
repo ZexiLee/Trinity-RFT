@@ -4,13 +4,11 @@ checkpoint_root_dir: ${oc.env:TRINITY_CHECKPOINT_ROOT_DIR,./checkpoints}
 algorithm:
   algorithm_type: grpo
   repeat_times: 8
-
-service:
-  data_juicer:
-    auto_start: true
 data_processor:
+  data_processor_url: 'http://127.0.0.1:5005/data_processor'
   # task pipeline related
   task_pipeline:
+<<<<<<< HEAD
     num_process: 32
     operators:
       - name: "llm_difficulty_score_filter"
@@ -23,6 +21,26 @@ data_processor:
       - ${oc.env:TRINITY_TASKSET_PATH}
     target_fields: ["question", "answer"]
 
+=======
+    # I/O buffers
+    input_buffers:
+      - name: 'raw_input'
+        path: 'openai/gsm8k'
+        storage_type: 'file'
+        raw: true
+    output_buffer:
+      name: 'raw_output'
+      path: './outputs/task_pipeline_output/prioritized_gsm8k.jsonl'
+      storage_type: 'file'
+    # format mapping
+    format:
+      prompt_key: 'question'
+      response_key: 'answer'
+    # data active iterator related
+    dj_process_desc: 'Please compute difficulty scores for these math questions.'
+    agent_model_name: 'qwen-max'
+    clean_strategy: 'iterative'
+>>>>>>> 08676d4003488daad6837e89c09e80e65b771bca
 model:
   model_path: ${oc.env:TRINITY_MODEL_PATH,Qwen/Qwen2.5-1.5B-Instruct}
   max_response_tokens: 1024
@@ -33,6 +51,8 @@ cluster:
 buffer:
   total_epochs: 1
   batch_size: 96
+  max_retry_times: 3
+  max_retry_interval: 1
   explorer_input:
     taskset:
       name: gsm8k
@@ -59,6 +79,11 @@ buffer:
       name: gsm8k_buffer
       storage_type: queue
       path: 'sqlite:///gsm8k.db'
+    # sft_warmup_steps: 0
+    # sft_warmup_dataset: # Uncomment these to enable sft warmup
+    #   name: warmup_data
+    #   storage_type: file
+    #   path: '/PATH/TO/WARMUP_DATA/'
 explorer:
   eval_interval: 50
   runner_per_model: 8

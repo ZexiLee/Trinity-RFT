@@ -179,6 +179,7 @@ Before RFT, we may use SFT as a warmup step. Trinity-RFT supports adding SFT war
 
 ```yaml
 # Properly add the following configs in gsm8k.yaml
+<<<<<<< HEAD
 stages:
   - stage_name: sft_warmup
     mode: train
@@ -192,6 +193,18 @@ stages:
           name: sft_warmup_dataset
           path: /PATH/TO/YOUR/SFT/DATASET
   - stage_name: rft  # leave empty to use the original configs for RFT
+=======
+buffer:
+  trainer_input:
+    sft_warmup_dataset:
+      storage_type: file
+      path: <$DATASET_PATH/{sft_data}>
+      format:
+        prompt_type: <prompt_type> # messages/plaintext/chatpair
+        prompt_key: <prompt_key>
+        response_key: <response_key>
+    sft_warmup_steps: 10
+>>>>>>> 08676d4003488daad6837e89c09e80e65b771bca
 ```
 
 The following command runs SFT and RFT in sequence:

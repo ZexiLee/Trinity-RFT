@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 project: "Trinity-RFT-gsm8k-exp-pipe"
 name: "qwen2.5-1.5B-gsm8k-exp-pipe"
 checkpoint_root_dir: ${oc.env:TRINITY_CHECKPOINT_ROOT_DIR,./checkpoints}
@@ -21,9 +22,34 @@ data_processor:
               weight: 1.0
     save_input: false
 
+=======
+project: "Trinity-RFT-gsm8k-experience-pipeline"
+name: "qwen2.5-1.5B-gsm8k-experience-pipeline"
+checkpoint_root_dir: /PATH/TO/CHECKPOINT/
+>>>>>>> 08676d4003488daad6837e89c09e80e65b771bca
 algorithm:
   algorithm_type: grpo
   repeat_times: 8
+data_processor:
+  data_processor_url: 'http://127.0.0.1:5005/data_processor'
+  # experience pipeline related
+  experience_pipeline:
+    # I/O buffers
+    input_buffers:
+      - name: gsm8k_exp_output
+    output_buffer:
+      name: reshaped_gsm8k_exp_input
+    # format mapping
+    format:
+      reward_key: 'reward'  # the key name of the reward in the experience
+    # data active iterator related
+    dj_config_path: 'examples/grpo_gsm8k_experience_pipeline/dj_scoring_exp.yaml'
+    clean_strategy: 'iterative'
+    # reward shaping
+    reward_shaping:
+      - stats_key: 'llm_quality_score'
+        op_type: ADD
+        weight: 1.0
 model:
   model_path: ${oc.env:TRINITY_MODEL_PATH,Qwen/Qwen2.5-1.5B-Instruct}
   max_response_tokens: 1024
@@ -34,6 +60,8 @@ cluster:
 buffer:
   total_epochs: 1
   batch_size: 96
+  max_retry_times: 3
+  max_retry_interval: 1
   explorer_input:
     taskset:
       name: gsm8k
@@ -56,14 +84,23 @@ buffer:
         prompt_key: 'question'
         response_key: 'answer'
     default_workflow_type: 'math_workflow'
+  explorer_output:
+    name: gsm8k_exp_output
+    storage_type: queue
+    path: 'sqlite:///gsm8k_exp_output.db'
   trainer_input:
     experience_buffer:
-      name: reshaped_gsm8k_buffer
+      name: reshaped_gsm8k_exp_input
       storage_type: queue
-      path: 'sqlite:///reshaped_gsm8k.db'
+      path: 'sqlite:///reshaped_gsm8k_exp_input.db'
 explorer:
+<<<<<<< HEAD
   eval_interval: 6
   runner_per_model: 8
+=======
+  eval_interval: 50
+  runner_num: 32
+>>>>>>> 08676d4003488daad6837e89c09e80e65b771bca
   rollout_model:
     engine_num: 2
     tensor_parallel_size: 1

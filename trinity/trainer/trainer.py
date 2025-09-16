@@ -16,7 +16,6 @@ from trinity.algorithm import SAMPLE_STRATEGY
 from trinity.common.config import Config
 from trinity.common.constants import RunningStatus, SyncMethod, SyncStyle
 from trinity.common.experience import Experiences
-from trinity.manager.state_manager import StateManager
 from trinity.manager.synchronizer import Synchronizer
 from trinity.utils.log import get_logger
 from trinity.utils.monitor import MONITOR
@@ -29,7 +28,7 @@ class Trainer:
 
     def __init__(self, config: Config) -> None:
         self.config = config
-        self.logger = get_logger(config.trainer.name, in_ray_actor=True)
+        self.logger = get_logger(__name__)
         load_plugins()
         self.synchronizer = Synchronizer.get_actor(config)
         self.engine = get_trainer_wrapper(config)
@@ -203,15 +202,6 @@ class Trainer:
     async def is_alive(self) -> bool:
         """Check if the trainer is alive."""
         return True
-
-    @classmethod
-    def get_actor(cls, config: Config):
-        """Get a Ray actor for the trainer."""
-        return (
-            ray.remote(cls)
-            .options(name=config.trainer.name, namespace=ray.get_runtime_context().namespace)
-            .remote(config)
-        )
 
 
 class TrainEngineWrapper(ABC):

@@ -21,10 +21,7 @@ SFT_DATASET_PATH_ENV_VAR = "TRINITY_SFT_DATASET_PATH"
 def get_template_config() -> Config:
     config_path = os.path.join(os.path.dirname(__file__), "template", "config.yaml")
     config = load_config(config_path)
-    if ray.is_initialized():
-        config.ray_namespace = ray.get_runtime_context().namespace
-    else:
-        config.ray_namespace = "trinity_unittest"
+    config.ray_namespace = ray.get_runtime_context().namespace
     return config
 
 
@@ -55,6 +52,7 @@ def get_checkpoint_path() -> str:
     return path
 
 
+<<<<<<< HEAD
 def get_vision_languge_model_path() -> str:
     path = os.environ.get(VLM_MODEL_PATH_ENV_VAR)
     if not path:
@@ -64,6 +62,8 @@ def get_vision_languge_model_path() -> str:
     return path
 
 
+=======
+>>>>>>> 08676d4003488daad6837e89c09e80e65b771bca
 def get_unittest_dataset_config(
     dataset_name: str = "countdown", split: str = "train"
 ) -> StorageConfig:
@@ -117,18 +117,6 @@ def get_unittest_dataset_config(
                 response_key="response",
             ),
         )
-    elif dataset_name == "sft_with_tools":
-        return StorageConfig(
-            name=dataset_name,
-            path=os.path.join(os.path.dirname(__file__), "template", "data", "sft_with_tools"),
-            split="train",
-            format=FormatConfig(
-                prompt_type=PromptType.MESSAGES,
-                messages_key="messages",
-                tools_key="tools",
-                enable_concatenated_multi_turn=True,
-            ),
-        )
     elif dataset_name == "dpo":
         return StorageConfig(
             name=dataset_name,
@@ -140,19 +128,6 @@ def get_unittest_dataset_config(
                 chosen_key="chosen",
                 rejected_key="rejected",
             ),
-        )
-    elif dataset_name == "geometry":
-        return StorageConfig(
-            name=dataset_name,
-            path=os.path.join(os.path.dirname(__file__), "template", "data", "geometry"),
-            split="train",
-            format=FormatConfig(
-                prompt_key="problem",
-                response_key="answer",
-                image_key="images",
-            ),
-            default_workflow_type="simple_mm_workflow",
-            default_reward_fn_type="math_boxed_reward",
         )
     else:
         raise ValueError(f"Unknown dataset name: {dataset_name}")

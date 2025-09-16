@@ -52,7 +52,6 @@ class RunnerWrapper:
         return (
             ray.remote(WorkflowRunner)
             .options(
-                num_cpus=1,
                 namespace=self.namespace,
                 scheduling_strategy="SPREAD",
                 runtime_env={
@@ -86,7 +85,7 @@ class RunnerWrapper:
                     else:
                         self.logger.error(status.message)
                 except asyncio.TimeoutError:
-                    last_exception_msg = f"Timeout when running task of batch {task.batch_id} at runner {self.runner_id} at attempt {attempt + 1}: {task.task}"
+                    last_exception_msg = f"Timeout when running task of batch {task.batch_id} at runner {self.runner_id}: {task.task}"
                     self.logger.error(last_exception_msg)
                     status = Status(ok=False, metric=dict(), message=last_exception_msg)
                 except Exception:
@@ -260,8 +259,8 @@ class Scheduler:
         for i in range(self.runner_num):
             self._create_runner(i)
         self.scheduler_task = asyncio.create_task(self._scheduler_loop())
-        ready_refs = [runner.runner.__ray_ready__.remote() for runner in self.runners.values()]
-        await asyncio.gather(*ready_refs)
+        for _, runner in self.runners.items():
+            await runner.runner.__ray_ready__.remote()
         self.logger.info(f"Starting Scheduler with {self.runner_num} runners")
 
     async def stop(self) -> None:

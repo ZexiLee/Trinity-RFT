@@ -10,7 +10,6 @@ from typing import Dict
 import ray
 import torch
 from omegaconf import OmegaConf
-from verl import DataProto
 from verl.trainer.ppo.metric_utils import (
     compute_throughout_metrics,
     compute_timing_metrics,
@@ -18,6 +17,7 @@ from verl.trainer.ppo.metric_utils import (
 from verl.trainer.ppo.ray_trainer import (
     RayClassWithInitArgs,
     RayPPOTrainer,
+    RayWorkerGroup,
     ResourcePoolManager,
     Role,
     create_colocated_worker_cls,
@@ -52,15 +52,12 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
 
         # instantiate tokenizer
+
         tokenizer = hf_tokenizer(local_path)
-        # processor for multimodal LLM, could be None
-        processor = hf_processor(local_path, use_fast=True)
 
         # define worker classes
         if config.actor_rollout_ref.actor.strategy in ["fsdp", "fsdp2"]:
             assert config.critic.strategy in ["fsdp", "fsdp2"]
-            from verl.single_controller.ray import RayWorkerGroup
-
             from trinity.trainer.verl.fsdp_workers import (
                 ActorRolloutRefWorker,
                 CriticWorker,
@@ -69,15 +66,7 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
-            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
-
-            from trinity.trainer.verl.megatron_workers import (
-                ActorRolloutRefWorker,
-                CriticWorker,
-            )
-
-            ray_worker_group_cls = NVMegatronRayWorkerGroup
+            raise NotImplementedError("Not support megatron for now.")
 
         else:
             raise NotImplementedError
@@ -123,7 +112,6 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
             role_worker_mapping,
             resource_pool_manager,
             ray_worker_group_cls,
-            processor=processor,
         )
         self.init_workers()
         self.last_full_save_step = None
@@ -247,8 +235,6 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
         # Do not use verl's dataloader
         self.train_dataloader = None
         self.total_training_steps = self.config.trainer.total_training_steps or sys.maxsize
-        self.config.actor_rollout_ref.actor.optim.total_training_steps = self.total_training_steps
-        self.config.critic.optim.total_training_steps = self.total_training_steps
 
     def save_state_dict(self):  # checkpoint sync
         local_global_step_folder = os.path.join(
@@ -270,7 +256,6 @@ class VerlPPOTrainerWrapper(RayPPOTrainer, TrainEngineWrapper):
 
     def train_step(self, batch: Experiences) -> Dict:  # noqa C901
         batch = to_data_proto(batch)
-        batch = self.post_process_batch(batch)
         metrics = {}
         self.global_steps += 1
         timing_raw = {}

@@ -8,13 +8,12 @@ from pprint import pprint
 
 import ray
 
-from trinity.buffer.pipelines.task_pipeline import check_and_run_task_pipeline
 from trinity.common.config import Config, load_config
-from trinity.common.constants import (
-    LOG_DIR_ENV_VAR,
-    LOG_LEVEL_ENV_VAR,
-    LOG_NODE_IP_ENV_VAR,
-    PLUGIN_DIRS_ENV_VAR,
+from trinity.common.constants import PLUGIN_DIRS_ENV_VAR, DataProcessorPipelineType
+from trinity.data.utils import (
+    activate_data_processor,
+    stop_data_processor,
+    validate_data_pipeline,
 )
 from trinity.explorer.explorer import Explorer
 from trinity.manager.state_manager import StateManager
@@ -29,38 +28,62 @@ logger = get_logger(__name__)
 def bench(config: Config) -> None:
     """Evaluate model."""
     config.explorer.name = "benchmark"
+    explorer = (
+        ray.remote(Explorer)
+        .options(
+            name=config.explorer.name,
+            namespace=ray.get_runtime_context().namespace,
+        )
+        .remote(config)
+    )
     try:
-        explorer = Explorer.get_actor(config)
         ray.get(explorer.prepare.remote())
         ray.get(explorer.benchmark.remote())
         logger.info("Benchmark finished.")
         ray.get(explorer.shutdown.remote())
     except Exception:
-        logger.error(f"Benchmark failed:\n{traceback.format_exc()}")
+        error_msg = traceback.format_exc()
+        logger.error(f"Benchmark failed:\n{error_msg}")
 
 
 def explore(config: Config) -> None:
     """Run explorer."""
     try:
-        explorer = Explorer.get_actor(config)
+        explorer = (
+            ray.remote(Explorer)
+            .options(
+                name=config.explorer.name,
+                namespace=ray.get_runtime_context().namespace,
+            )
+            .remote(config)
+        )
         ray.get(explorer.prepare.remote())
         ray.get(explorer.sync_weight.remote())
         ray.get(explorer.explore.remote())
         ray.get(explorer.shutdown.remote())
     except Exception:
-        logger.error(f"Explorer failed:\n{traceback.format_exc()}")
+        error_msg = traceback.format_exc()
+        logger.error(f"Explorer failed:\n{error_msg}")
 
 
 def train(config: Config) -> None:
     """Run trainer."""
     try:
-        trainer = Trainer.get_actor(config)
+        trainer = (
+            ray.remote(Trainer)
+            .options(
+                name=config.trainer.name,
+                namespace=ray.get_runtime_context().namespace,
+            )
+            .remote(config)
+        )
         ray.get(trainer.prepare.remote())
         ray.get(trainer.sync_weight.remote())
         ray.get(trainer.train.remote())
         ray.get(trainer.shutdown.remote())
     except Exception:
-        logger.error(f"Trainer failed:\n{traceback.format_exc()}")
+        error_msg = traceback.format_exc()
+        logger.error(f"Trainer failed:\n{error_msg}")
 
 
 def both(config: Config) -> None:
@@ -73,56 +96,68 @@ def both(config: Config) -> None:
     the latest step. The specific number of experiences may vary for different
     algorithms and tasks.
     """
-    try:
-        explorer = Explorer.get_actor(config)
-        trainer = Trainer.get_actor(config)
-        ray.get([explorer.__ray_ready__.remote(), trainer.__ray_ready__.remote()])
-        ray.get(
-            [
-                explorer.prepare.remote(),
-                trainer.prepare.remote(),
-            ]
+    namespace = ray.get_runtime_context().namespace
+    explorer = (
+        ray.remote(Explorer)
+        .options(
+            name=config.explorer.name,
+            namespace=namespace,
         )
-        ray.get(
-            [
-                explorer.sync_weight.remote(),
-                trainer.sync_weight.remote(),
-            ]
+        .remote(config)
+    )
+    trainer = (
+        ray.remote(Trainer)
+        .options(
+            name=config.trainer.name,
+            namespace=namespace,
         )
-        ready_ref, wait_ref = ray.wait(
-            [
-                explorer.explore.remote(),
-                trainer.train.remote(),
-            ],
-            num_returns=1,
-        )
+        .remote(config)
+    )
+    ray.get([explorer.__ray_ready__.remote(), trainer.__ray_ready__.remote()])
+    ray.get(
+        [
+            explorer.prepare.remote(),
+            trainer.prepare.remote(),
+        ]
+    )
+    ray.get(
+        [
+            explorer.sync_weight.remote(),
+            trainer.sync_weight.remote(),
+        ]
+    )
+    ready_ref, wait_ref = ray.wait(
+        [
+            explorer.explore.remote(),
+            trainer.train.remote(),
+        ],
+        num_returns=1,
+    )
 
-        ready = ray.get(ready_ref[0])
-        if ready == config.trainer.name:
-            logger.info(
-                "===========================================================\n"
-                "> Launcher detected that the `Trainer` process has finished.\n"
-                "> Stopping the explorer process immediately.\n"
-                "==========================================================="
-            )
-            ray.wait(wait_ref, timeout=5)
-        elif ready == config.explorer.name:
-            logger.info(
-                "===============================================================\n"
-                "> Launcher detected that the `Explorer` process has finished.\n"
-                "> `Trainer` process may need to save the model checkpoint.\n"
-                f"> Waiting {config.synchronizer.sync_timeout} s for the trainer process...\n"
-                "> You can force stop the `Trainer` process by pressing Ctrl+C.\n"
-                "==============================================================="
-            )
-            ray.wait(wait_ref, timeout=config.synchronizer.sync_timeout)
-        ray.wait(
-            [explorer.shutdown.remote(), trainer.shutdown.remote()],
-            timeout=config.synchronizer.sync_timeout,
-            num_returns=2,
+    ready = ray.get(ready_ref[0])
+    if ready == config.trainer.name:
+        logger.info(
+            "===========================================================\n"
+            "> Launcher detected that the `Trainer` process has finished.\n"
+            "> Stopping the explorer process immediately.\n"
+            "==========================================================="
         )
-    except Exception:
-        logger.error(f"Explorer or Trainer failed:\n{traceback.format_exc()}")
+        ray.wait(wait_ref, timeout=5)
+    elif ready == config.explorer.name:
+        logger.info(
+            "===============================================================\n"
+            "> Launcher detected that the `Explorer` process has finished.\n"
+            "> `Trainer` process may need to save the model checkpoint.\n"
+            f"> Waiting {config.synchronizer.sync_timeout} s for the trainer process...\n"
+            "> You can force stop the `Trainer` process by pressing Ctrl+C.\n"
+            "==============================================================="
+        )
+        ray.wait(wait_ref, timeout=config.synchronizer.sync_timeout)
+    ray.wait(
+        [explorer.shutdown.remote(), trainer.shutdown.remote()],
+        timeout=config.synchronizer.sync_timeout,
+        num_returns=2,
+    )
 
 
 def run_stage(config: Config, ray_address: str) -> None:

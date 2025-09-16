@@ -338,7 +338,7 @@ Tutorials for running different RFT modes:
 + [Offline learning by DPO or SFT](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_dpo.html)
 
 
-Tutorials for adapting Trinity-RFT to multi-step agentic scenarios:
+Tutorials for adapting Trinity-RFT to a new multi-turn agentic scenario:
 
 + [Concatenated multi-turn workflow](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_multi_turn.html)
 + [General multi-step workflow](https://modelscope.github.io/Trinity-RFT/en/main/tutorial/example_step_wise.html)

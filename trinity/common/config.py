@@ -15,12 +15,14 @@ from trinity.common.constants import (
     EXPLORER_NAME,
     MAX_MODEL_LEN,
     TRAINER_NAME,
+    OpType,
     PromptType,
+    ReadStrategy,
     StorageType,
     SyncMethod,
     SyncStyle,
+    TaskType,
 )
-from trinity.utils.annotations import Experimental
 from trinity.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -30,38 +32,31 @@ logger = get_logger(__name__)
 class FormatConfig:
     """Configuration for data formatting"""
 
-    # for sft / dpo
     prompt_type: PromptType = PromptType.MESSAGES
 
-    # for plaintext input
-    prompt_key: str = "prompt"  # user prompt
-    response_key: str = "response"  # assistant response
-    system_prompt_key: Optional[str] = None  # If set, use the provided system prompt
-    system_prompt: Optional[str] = None  # has lower priority than system_prompt_key
-
-    # for message list input
+    prompt_key: str = "prompt"
+    response_key: str = "response"
     messages_key: str = "message"
+    chat_template: str = ""  # deprecated
 
-    # for tools
-    tools_key: str = "tools"
-    image_key: Optional[str] = None  # used for multi-modal data
-    video_key: Optional[str] = None  # used for multi-modal data
-
+    system_prompt: Optional[str] = None
     reply_prefix: Optional[str] = None
 
     # for sample-level task controlling
-    workflow_key: str = ""
     reward_fn_key: str = ""
+    workflow_key: str = ""
+    # for math dataset
+    solution_key: str = "solution"
+
+    # for reward dataset
+    reward_key: str = "reward"
 
     # for dpo dataset
     chosen_key: str = "chosen"
     rejected_key: str = "rejected"
 
-    # for multi-turn sft
-    enable_concatenated_multi_turn: bool = False
-
-    # for sft / dpo, if None, use model.custom_chat_template
-    chat_template: Optional[str] = None
+    # for unpaired preference dataset
+    label_key: str = ""
 
 
 @dataclass
@@ -84,16 +79,17 @@ class StorageConfig:
     path: Optional[str] = None
     repeat_times: Optional[int] = None
 
-    # For continuing training
-    index: int = 0
-
-    # used for multi-modal data
-    mm_data_kwargs: dict = field(default_factory=dict)
+    # only available for StorageType.FILE. When requiring data processing on raw data, set the raw to True.
+    raw: bool = False
 
     # used for StorageType.FILE
     split: str = "train"
     subset_name: Optional[str] = None
     format: FormatConfig = field(default_factory=FormatConfig)
+    index: int = 0
+
+    # used for StorageType.SQL/FILE
+    wrap_in_ray: bool = True
 
     # used for StorageType.QUEUE
     capacity: int = 10000
@@ -103,10 +99,6 @@ class StorageConfig:
     replay_buffer_kwargs: dict = field(
         default_factory=lambda: {"priority_fn": "linear_decay", "decay": 0.1}
     )
-
-    # used for StorageType.SQL
-    max_retry_times: int = 3
-    max_retry_interval: int = 1
 
     # used for rollout tasks
     default_workflow_type: Optional[str] = None
@@ -122,11 +114,8 @@ class StorageConfig:
     # get storage from existing experiment
     ray_namespace: Optional[str] = None
 
-    # ! DO NOT SET except you know what you are doing
-    wrap_in_ray: bool = True
-
-    # ! DO NOT SET, automatically set
-    schema_type: Optional[str] = None
+    # ! DO NOT SET, automatically set from algorithm.algorithm_type
+    algorithm_type: Optional[str] = None
 
     # ! DO NOT SET, automatically set from buffer.total_epochs
     total_epochs: int = 1  # automatically set
@@ -135,87 +124,56 @@ class StorageConfig:
     total_steps: Optional[int] = None  # automatically set
 
     # ! DO NOT SET,  automatically set corresponding to train/eval
-    is_eval: bool = False
+    task_type: TaskType = TaskType.EXPLORE
 
 
 @dataclass
-class OperatorConfig:
-    name: str = ""
-    args: Dict[str, Any] = field(default_factory=dict)
+class RewardShapingConfig:
+    """Config for reward shaping."""
+
+    stats_key: str = ""
+    op_type: OpType = OpType.ADD
+    weight: float = 1.0
 
 
-@Experimental
 @dataclass
-class ExperiencePipelineConfig:
-    """Config for experience pipeline.
+class DataPipelineConfig:
+    """Config for data pipeline."""
 
-    Experience Pipeline is used to pre-process rollout experiences for better training.
-    """
+    # I/O buffer
+    input_buffers: List[StorageConfig] = field(default_factory=list)
+    output_buffer: StorageConfig = field(default_factory=StorageConfig)
 
-    # The list of experience operators to apply, operators will be applied in the order they are defined
-    operators: List[OperatorConfig] = field(default_factory=list)
-    save_input: bool = True  # whether to save the input experiences
-    input_save_path: Optional[
+    # data format
+    format: FormatConfig = field(default_factory=FormatConfig)
+
+    # data active iterator related
+    dj_config_path: Optional[str] = None  # The path to Data-Juicer config file.
+    dj_process_desc: Optional[
         str
-    ] = None  # the path to save the input experiences, can be a jsonl file or a sqlite database file
+    ] = None  # Describe the data processing procedure without requiring users to be aware of the specific DJ parameters
+    agent_model_name: Optional[str] = None
+    clean_strategy: str = "iterative"
+    min_size_ratio: Optional[float] = None
+    min_priority_score: Optional[float] = 0.0
+    priority_weights: Optional[Dict[str, float]] = None
+    data_dist: Optional[str] = "gaussian"  # one of ["gaussian", "uniform"]
 
-    # The following fields are experimental, do not set them unless you know what you are doing
-
-    # A dictionary of input buffers, buffers are indexed by their names.
-    # users only need to set extra buffers here
-    inputs: Dict[str, StorageConfig] = field(default_factory=dict)
-    # The output buffer will automatically set to the trainer input buffer, so we do not need to set it here.
-    output: Optional[StorageConfig] = None
-
-
-@Experimental
-@dataclass
-class TaskPipelineConfig:
-    """Config for task pipeline.
-
-    Task Pipeline is used to pre-process raw tasks for better exploring. Currently, we only support using
-    Data-Juicer operators for task pipeline.
-    """
-
-    # The list of data-juicer operators to apply, operators will be applied in the order they are defined
-    operators: List[OperatorConfig] = field(default_factory=list)
-    # number of process
-    num_process: int = 4
-    # The path to the Data-Juicer config file. If set, operators and num_process will be ignored
-    config_path: Optional[str] = None
-
-    # Raw input tasksets. Currently, task pipeline only support local file as inputs,
-    # e.g., /path/to/file.jsonl or /path/to/file.parquet, not a directory or huggingface path
-    inputs: List[str] = field(default_factory=list)
-    # Output task buffer, if not set, use `buffer.explorer_input.taskset`. In most cases, users do not need to set this field.
-    output: Optional[StorageConfig] = None
-
-    # The list of fields extracted from the input tasksets and processed into the output taskset
-    target_fields: List[str] = field(default_factory=list)
-
-    # weights for priority computing. Usually including 4 types of weights:
-    # - difficulty
-    # - diversity
-    # - usage_frequency
-    # - quality
-    priority_weights: Dict[str, float] = field(default_factory=dict)
-
-    # number of samples to select after task pipeline. -1 means all
-    top_k: int = -1
+    # reward shaping related, only available for experience pipeline
+    reward_shaping: Optional[List[RewardShapingConfig]] = field(default_factory=list)
 
 
-@Experimental
 @dataclass
 class DataProcessorConfig:
-    """Data Processor config"""
+    """Data-Juicer config"""
+
+    data_processor_url: Optional[str] = None
 
     # support two types of data pipelines for now
     # 1. For task. Data preprocessing from raw dataset to the task set
-    task_pipeline: Optional[TaskPipelineConfig] = None
+    task_pipeline: Optional[DataPipelineConfig] = None
     # 2. For experience. Data processing for rollouts
-    experience_pipeline: Optional[ExperiencePipelineConfig] = field(
-        default_factory=ExperiencePipelineConfig
-    )
+    experience_pipeline: Optional[DataPipelineConfig] = None
 
 
 @dataclass
@@ -226,7 +184,6 @@ class ModelConfig:
     max_model_len: Optional[int] = None
     max_prompt_tokens: Optional[int] = None
     max_response_tokens: Optional[int] = None
-    min_response_tokens: int = 1
     custom_chat_template: Optional[str] = None
 
 
@@ -252,10 +209,6 @@ class InferenceModelConfig:
     max_prompt_tokens: Optional[int] = None
     # if not set, use `model.max_response_tokens`
     max_response_tokens: Optional[int] = None
-    # if not set, use `model.min_response_tokens`
-    min_response_tokens: Optional[int] = None
-    # used for testing very long response generation, do not set it unless you know what you are doing
-    ignore_eos: bool = False
 
     # override chat template in model
     chat_template: Optional[str] = None
@@ -287,6 +240,10 @@ class AlgorithmConfig:
     algorithm_type: str = "ppo"
     # for GRPO-like algorithms, repeat each task for `repeat_times` times
     repeat_times: int = 1
+
+    # the strategy for adding experiences to the buffer
+    add_strategy: Optional[str] = None
+    add_strategy_args: Optional[dict] = None
 
     # the strategy for sampling experiences from the buffer
     sample_strategy: Optional[str] = None
@@ -321,7 +278,6 @@ class ClusterConfig:
     gpu_per_node: int = 8
 
 
-@Experimental
 @dataclass
 class ExplorerInput:
     """Config for explorer input."""
@@ -363,12 +319,16 @@ class BufferConfig:
 
     # for explorer
     explorer_input: ExplorerInput = field(default_factory=ExplorerInput)
+    explorer_output: Optional[StorageConfig] = None  # currently do not set
 
     # for trainer
     trainer_input: TrainerInput = field(default_factory=TrainerInput)
 
+    # for storage connection
+    max_retry_times: int = 3
+    max_retry_interval: int = 1
+
     # ! DO NOT SET FOLLOWING FIELDS
-    explorer_output: Optional[StorageConfig] = None  # automatically set
     tokenizer_path: Optional[str] = None  # automatically set
     pad_token_id: Optional[int] = None  # automatically set
     cache_dir: Optional[str] = None  # automatically set
@@ -403,6 +363,12 @@ class ExplorerConfig:
 
     # for benchmark
     bench_on_latest_checkpoint: bool = False  # only benchmark the latest checkpoint
+
+    # ! DO NOT SET
+    # Explorer collects experiences from workflow runners
+    # some algorithms (e.g., DAPO) need to collect experiences generated by the same task and do some post-processing
+    # will automatically set to True if `algorithm.add_strategy` is not None
+    collect_experiences: bool = False
 
 
 @dataclass
@@ -595,7 +561,7 @@ class Config:
             self.buffer.trainer_input.experience_buffer.total_epochs = self.buffer.total_epochs
             self.buffer.trainer_input.experience_buffer.total_steps = self.buffer.total_steps
         else:
-            self.buffer.explorer_input.taskset.is_eval = False
+            self.buffer.explorer_input.taskset.task_type = TaskType.EXPLORE
             self.buffer.explorer_input.taskset.total_epochs = self.buffer.total_epochs
             self.buffer.explorer_input.taskset.total_steps = self.buffer.total_steps
         if self.buffer.explorer_input.taskset.default_workflow_type is None:
@@ -626,7 +592,7 @@ class Config:
             if not dataset.path:
                 logger.warning(f"Eval dataset [{dataset}]'s path is not configured. Skip.")
                 continue
-            dataset.is_eval = True
+            dataset.task_type = TaskType.EVAL
             if not dataset.name:
                 dataset.name = f"eval_taskset_{idx}"
             if dataset.repeat_times is None:
@@ -649,31 +615,28 @@ class Config:
         self.buffer.explorer_input.eval_tasksets = remained_tasksets
 
         # check trainer_input.experience_buffer
-        if self.buffer.trainer_input.experience_buffer is None:
-            self.buffer.trainer_input.experience_buffer = StorageConfig(
-                name="experience_buffer",
-                storage_type=StorageType.QUEUE,
+        if self.mode == "both" or self.mode == "explore":
+            if self.buffer.trainer_input.experience_buffer is None:
+                self.buffer.trainer_input.experience_buffer = StorageConfig(
+                    name="experience_buffer",
+                    storage_type=StorageType.QUEUE,
+                )
+                logger.info(
+                    f"Auto set `buffer.trainer_input.experience_buffer` to {self.buffer.trainer_input.experience_buffer}"
+                )
+            elif self.buffer.trainer_input.experience_buffer.storage_type is StorageType.FILE:
+                logger.warning(
+                    "`FILE` storage is not supported to use as experience_buffer in `both` mode, use `QUEUE` instead."
+                )
+                self.buffer.trainer_input.experience_buffer.storage_type = StorageType.QUEUE
+        elif self.mode == "train":  # TODO: to be check
+            pass
+        if self.buffer.trainer_input.experience_buffer is not None:
+            self.buffer.trainer_input.experience_buffer.algorithm_type = (
+                self.algorithm.algorithm_type
             )
-            logger.info(
-                f"Auto set `buffer.trainer_input.experience_buffer` to {self.buffer.trainer_input.experience_buffer}"
-            )
-        elif (
-            self.buffer.trainer_input.experience_buffer.storage_type is StorageType.FILE
-            and self.mode == "both"
-        ):
-            logger.warning(
-                "`FILE` storage is not supported to use as experience_buffer in `both` mode, use `QUEUE` instead."
-            )
-            self.buffer.trainer_input.experience_buffer.storage_type = StorageType.QUEUE
-
-        from trinity.algorithm.algorithm import ALGORITHM_TYPE
-
-        self.buffer.trainer_input.experience_buffer.schema_type = ALGORITHM_TYPE.get(
-            self.algorithm.algorithm_type
-        ).schema
-
-        if self.buffer.trainer_input.experience_buffer.ray_namespace is None:
-            self.buffer.trainer_input.experience_buffer.ray_namespace = self.ray_namespace
+            if self.buffer.trainer_input.experience_buffer.ray_namespace is None:
+                self.buffer.trainer_input.experience_buffer.ray_namespace = self.ray_namespace
 
         if self.buffer.trainer_input.experience_buffer.format.chat_template is None:
             self.buffer.trainer_input.experience_buffer.format.chat_template = (
@@ -690,42 +653,67 @@ class Config:
                 f"your checkpoint directory: {self.checkpoint_job_dir}"
             )
 
-        # check input/output buffers in pipelines
+        # check input/output buffers in experience pipelines
         if self.data_processor.experience_pipeline is not None:
+            # collect existing buffers for trinity
+            input_buffers = {}
+            output_buffers = {}
+            # - taskset
+            if self.buffer.explorer_input.taskset.name:
+                input_buffers[
+                    self.buffer.explorer_input.taskset.name
+                ] = self.buffer.explorer_input.taskset
+            # - explorer output
+            if self.buffer.explorer_output and self.buffer.explorer_output.name:
+                output_buffers[self.buffer.explorer_output.name] = self.buffer.explorer_output
+            # - trainer input: experience buffer
             if (
-                self.data_processor.experience_pipeline.save_input
-                and self.data_processor.experience_pipeline.input_save_path is None
+                self.buffer.trainer_input.experience_buffer
+                and self.buffer.trainer_input.experience_buffer.name
             ):
-                self.data_processor.experience_pipeline.input_save_path = os.path.join(
-                    self.buffer.cache_dir, "explorer_output.jsonl"
-                )
-                logger.info(
-                    f"Auto set `data_processor.experience_pipeline.input_save_path` to {self.data_processor.experience_pipeline.input_save_path}"
-                )
-        if self.data_processor.task_pipeline is not None:
-            if self.data_processor.task_pipeline.output is None:
-                if self.buffer.explorer_input.taskset.path is not None:
-                    self.data_processor.task_pipeline.output = self.buffer.explorer_input.taskset
-                elif (
-                    self.buffer.trainer_input.experience_buffer.schema_type in {"dpo", "sft"}
-                    and self.buffer.trainer_input.experience_buffer.path is not None
-                ):
-                    self.data_processor.task_pipeline.output = (
-                        self.buffer.trainer_input.experience_buffer
-                    )
-                else:
-                    raise ValueError(
-                        "`data_processor.task_pipeline.output` is required when both "
-                        "`buffer.explorer_input.taskset.path` and `buffer.trainer_input.experience_buffer.path` are "
-                        "None"
-                    )
-            if self.data_processor.task_pipeline.output.path and os.path.exists(
-                self.data_processor.task_pipeline.output.path
+                input_buffers[
+                    self.buffer.trainer_input.experience_buffer.name
+                ] = self.buffer.trainer_input.experience_buffer
+            # - trainer input: sft warmup dataset
+            if (
+                self.buffer.trainer_input.sft_warmup_dataset
+                and self.buffer.trainer_input.sft_warmup_dataset.name
             ):
+                input_buffers[
+                    self.buffer.trainer_input.sft_warmup_dataset.name
+                ] = self.buffer.trainer_input.sft_warmup_dataset
+
+            # when experience pipeline is on, the explorer output and the
+            # experience buffer of trainer input should be different
+            if self.buffer.explorer_output == self.buffer.trainer_input.experience_buffer:
                 raise ValueError(
-                    f"Task pipeline output path {self.data_processor.task_pipeline.output.path} already exists.\n"
-                    "Please choose a different output path to avoid overwriting."
+                    "The explorer output buffer should be different from the experience buffer of the trainer input "
+                    "when experience pipeline is provided."
                 )
+
+            # NOTICE: For now, input/output buffers for data processors should come from output/input buffers of trinity
+            # the input buffers in experience pipeline should come from the output buffers of trinity
+            exp_pipeline_input_buffers = self.data_processor.experience_pipeline.input_buffers
+            synced_input_buffers = []
+            for input_buffer in exp_pipeline_input_buffers:
+                if input_buffer.name not in output_buffers:
+                    raise ValueError(
+                        f"The input buffer {input_buffer.name} of experience pipeline is not found in any output "
+                        f"buffers of trinity."
+                    )
+                synced_input_buffers.append(output_buffers[input_buffer.name])
+            self.data_processor.experience_pipeline.input_buffers = synced_input_buffers
+            # the output buffers of trinity should come from the input buffers of trinity
+            exp_pipeline_output_buffers = self.data_processor.experience_pipeline.output_buffer
+            if exp_pipeline_output_buffers.name not in input_buffers:
+                raise ValueError(
+                    f"The output buffer {exp_pipeline_output_buffers.name} of experience pipeline is not found in any "
+                    f"input buffers of trinity."
+                )
+            else:
+                self.data_processor.experience_pipeline.output_buffer = input_buffers[
+                    exp_pipeline_output_buffers.name
+                ]
 
         # check train_batch_size
         if not self.buffer.train_batch_size:
@@ -757,9 +745,19 @@ class Config:
                 logger.warning(f"Failed to get pad token id from model {self.model.model_path}")
                 self.buffer.pad_token_id = 0
         self.buffer.tokenizer_path = self.model.model_path
+        # create buffer.cache_dir at <checkpoint_root_dir>/<project>/<name>/buffer
+        self.buffer.cache_dir = os.path.abspath(os.path.join(self.checkpoint_job_dir, "buffer"))
+        try:
+            os.makedirs(self.buffer.cache_dir, exist_ok=True)
+        except Exception:
+            logger.warning(
+                f"Failed to create buffer dir {self.buffer.cache_dir}, please check "
+                f"your checkpoint directory: {self.checkpoint_job_dir}"
+            )
 
     def _check_algorithm(self) -> None:
         from trinity.algorithm import (
+            ADD_STRATEGY,
             ADVANTAGE_FN,
             ENTROPY_LOSS_FN,
             KL_FN,
@@ -791,6 +789,9 @@ class Config:
                 setattr(self.algorithm, args_attr, fn_cls.default_args())
             return fn_cls
 
+        if self.algorithm.add_strategy is not None:
+            check_and_set("add_strategy", ADD_STRATEGY, "add_strategy_args")
+            self.explorer.collect_experiences = True
         check_and_set("sample_strategy", SAMPLE_STRATEGY, "sample_strategy_args")
         check_and_set("policy_loss_fn", POLICY_LOSS_FN, "policy_loss_fn_args")
         check_and_set("advantage_fn", ADVANTAGE_FN, "advantage_fn_args")
@@ -933,6 +934,14 @@ class Config:
                 if self.trainer.trainer_config:
                     from trinity.common.verl_config import veRLConfig
 
+                    trainer_config_schema = OmegaConf.structured(veRLConfig)
+                    trainer_config = OmegaConf.merge(
+                        trainer_config_schema, self.trainer.trainer_config
+                    )
+                    self.trainer.trainer_config = OmegaConf.to_object(trainer_config)
+                else:
+                    if os.path.isfile(self.trainer.trainer_config_path):
+                        from trinity.common.verl_config import load_config
                     trainer_config_schema = OmegaConf.structured(veRLConfig)
                     trainer_config = OmegaConf.merge(
                         trainer_config_schema, self.trainer.trainer_config

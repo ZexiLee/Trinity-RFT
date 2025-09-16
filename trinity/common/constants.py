@@ -2,6 +2,10 @@
 """Constants."""
 from enum import Enum, EnumMeta
 
+from trinity.utils.log import get_logger
+
+logger = get_logger(__name__)
+
 # names
 
 EXPLORER_NAME = "explorer"
@@ -16,9 +20,6 @@ MODEL_PATH_ENV_VAR = "TRINITY_MODEL_PATH"
 TASKSET_PATH_ENV_VAR = "TRINITY_TASKSET_PATH"
 BUFFER_PATH_ENV_VAR = "TRINITY_BUFFER_PATH"
 PLUGIN_DIRS_ENV_VAR = "TRINITY_PLUGIN_DIRS"
-LOG_DIR_ENV_VAR = "TRINITY_LOG_DIR"  # log dir
-LOG_LEVEL_ENV_VAR = "TRINITY_LOG_LEVEL"  # global log level
-LOG_NODE_IP_ENV_VAR = "TRINITY_LOG_NODE_IP"  # whether to organize logs by node IP
 
 
 # constants
@@ -49,8 +50,27 @@ class CaseInsensitiveEnum(Enum, metaclass=CaseInsensitiveEnumMeta):
 class PromptType(CaseInsensitiveEnum):
     """Prompt Type."""
 
-    MESSAGES = "messages"  # a list of message dict
-    PLAINTEXT = "plaintext"  # user prompt text and assistant response text
+    MESSAGES = "messages"  # prompt+response: message list
+    CHATPAIR = "chatpair"  # prompt: message list, response: message list
+    PLAINTEXT = "plaintext"  # prompt: plaintext, response: plaintext
+
+
+class TaskType(Enum):
+    """Task Type."""
+
+    EXPLORE = 0
+    EVAL = 1
+
+
+class ReadStrategy(CaseInsensitiveEnum):
+    """Pop Strategy."""
+
+    DEFAULT = None
+    FIFO = "fifo"
+    RANDOM = "random"
+    LRU = "lru"
+    LFU = "lfu"
+    PRIORITY = "priority"
 
 
 class StorageType(CaseInsensitiveEnum):
@@ -64,12 +84,15 @@ class StorageType(CaseInsensitiveEnum):
 class SyncMethodEnumMeta(CaseInsensitiveEnumMeta):
     def __call__(cls, value, *args, **kwargs):
         if value == "online":
+            logger.warning("SyncMethod `online` is deprecated, use `nccl` instead.")
             value = "nccl"
         elif value == "offline":
+            logger.warning("SyncMethod `offline` is deprecated, use `checkpoint` instead.")
             value = "checkpoint"
         try:
             return super().__call__(value, *args, **kwargs)
-        except Exception:
+        except Exception as e:
+            logger.warning("Error parsing SyncMethod:", e)
             raise ValueError(f"Invalid SyncMethod: {value}")
 
 
@@ -88,6 +111,13 @@ class RunningStatus(Enum):
     REQUIRE_SYNC = "require_sync"
     WAITING_SYNC = "waiting_sync"
     STOPPED = "stopped"
+
+
+class DataProcessorPipelineType(Enum):
+    """Data processor pipeline type."""
+
+    EXPERIENCE = "experience_pipeline"
+    TASK = "task_pipeline"
 
 
 class OpType(Enum):

@@ -31,9 +31,9 @@ def gather_metrics(metric_list: List[Dict], prefix: str) -> Dict:
     stats_df = numeric_df.agg(["mean", "max", "min"])
     metric = {}
     for col in stats_df.columns:
-        metric[f"{prefix}/{col}/mean"] = stats_df.loc["mean", col].item()
-        metric[f"{prefix}/{col}/max"] = stats_df.loc["max", col].item()
-        metric[f"{prefix}/{col}/min"] = stats_df.loc["min", col].item()
+        metric[f"{prefix}/{col}/mean"] = stats_df.loc["mean", col]
+        metric[f"{prefix}/{col}/max"] = stats_df.loc["max", col]
+        metric[f"{prefix}/{col}/min"] = stats_df.loc["min", col]
     return metric
 
 
@@ -100,7 +100,7 @@ class TensorboardMonitor(Monitor):
         self.tensorboard_dir = os.path.join(config.monitor.cache_dir, "tensorboard", role)
         os.makedirs(self.tensorboard_dir, exist_ok=True)
         self.logger = SummaryWriter(self.tensorboard_dir)
-        self.console_logger = get_logger(__name__, in_ray_actor=True)
+        self.console_logger = get_logger(__name__)
 
     def log_table(self, table_name: str, experiences_table: pd.DataFrame, step: int):
         pass
@@ -143,7 +143,7 @@ class WandbMonitor(Monitor):
             config=config,
             save_code=False,
         )
-        self.console_logger = get_logger(__name__, in_ray_actor=True)
+        self.console_logger = get_logger(__name__)
 
     def log_table(self, table_name: str, experiences_table: pd.DataFrame, step: int):
         experiences_table = wandb.Table(dataframe=experiences_table)
@@ -197,11 +197,10 @@ class MlflowMonitor(Monitor):
             },
         )
         mlflow.log_params(config.flatten())
-        self.console_logger = get_logger(__name__, in_ray_actor=True)
+        self.console_logger = get_logger(__name__)
 
     def log_table(self, table_name: str, experiences_table: pd.DataFrame, step: int):
-        experiences_table["step"] = step
-        mlflow.log_table(data=experiences_table, artifact_file=f"{table_name}.json")
+        pass
 
     def log(self, data: dict, step: int, commit: bool = False) -> None:
         """Log metrics."""

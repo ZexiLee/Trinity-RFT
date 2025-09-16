@@ -575,10 +575,15 @@ class ConfigManager:
                     "name": "experience_buffer",
                     "storage_type": st.session_state["storage_type"],
                     "path": experience_buffer_path,
+<<<<<<< HEAD
                     # "max_retry_interval": st.session_state["max_retry_interval"],
                     # "max_retry_times": st.session_state["buffer_max_retry_times"],
+=======
+>>>>>>> 08676d4003488daad6837e89c09e80e65b771bca
                 },
             },
+            "max_retry_times": st.session_state["buffer_max_retry_times"],
+            "max_retry_interval": st.session_state["max_retry_interval"],
         }
         if st.session_state["train_batch_size"] is None:
             del buffer_config["train_batch_size"]
